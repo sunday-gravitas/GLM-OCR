@@ -87,6 +87,28 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_FATAL_DRIVE: Optional["DriveClient"] = None
+_FATAL_FOLDER: str = os.environ.get(
+    "OCR_BOOK_FOLDER_ID", "1iDlabXG8aF9zxSyB7EzlOboL2N-buNqj")
+
+
+def fatal_report(reason: str) -> None:
+    """Last-gasp: push the crash reason + log tail to Drive (best effort)."""
+    global _FATAL_DRIVE
+    try:
+        if _FATAL_DRIVE is None:
+            _FATAL_DRIVE = DriveClient(load_drive_creds())
+        _FATAL_DRIVE.upload_json(_FATAL_FOLDER, "pipeline_fatal.json", {
+            "component": "run_ocr_pipeline",
+            "codespace": os.environ.get("CODESPACE_NAME", "?"),
+            "fatal": reason,
+            "updated_at": utcnow(),
+            "pipeline_log_tail": _tail("/tmp/pipeline.log", 60),
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def log_line(msg: str) -> None:
     print(f"[{utcnow()}] {msg}", flush=True)
 
@@ -236,12 +258,15 @@ def start_runtime_reporter(drive: DriveClient, folder_id: str) -> None:
         return data
 
     def report() -> None:
+        wait = 300
         while True:
-            time.sleep(300)
+            time.sleep(wait)
             try:
                 drive.upload_json(folder_id, "pipeline_status.json", snapshot())
+                wait = 300
             except Exception as exc:  # noqa: BLE001
                 log_line(f"WARNING: runtime report failed: {exc}")
+                wait = 60  # retry sooner while things are broken
 
     threading.Thread(target=report, daemon=True).start()
     try:
@@ -473,6 +498,8 @@ def main() -> int:
     creds = load_drive_creds()
     log_line("drive credentials loaded")
     drive = DriveClient(creds)
+    global _FATAL_DRIVE
+    _FATAL_DRIVE = drive
     # arm the runtime reporter EARLY (before any Drive call can hang), so a
     # stack dump + step log always reaches Drive
     start_runtime_reporter(drive, os.environ.get(
@@ -539,6 +566,7 @@ def main() -> int:
 
     # main loop — ONE BOOK AT A TIME ---------------------------------------
     attempted = 0
+    consecutive_drive_failures = 0
     for meta in books:
         entry = booklog.book_index[meta["id"]]
         if entry["status"] == "done":
@@ -624,21 +652,36 @@ def main() -> int:
                 **uploads,
             )
             done = booklog.summary()["done"]
+            consecutive_drive_failures = 0
             log_line(f"✓ done: {name} — pages={pages} in {duration}s "
                      f"({done}/{len(books)} complete)")
             STATE.update(books_done=done)
 
         except Exception as exc:  # noqa: BLE001
             duration = round(time.time() - started, 1)
-            booklog.mark(
-                meta, "failed",
-                completed_at=utcnow(),
-                duration_seconds=duration,
-                error=str(exc)[:800],
-            )
+            try:
+                booklog.mark(
+                    meta, "failed",
+                    completed_at=utcnow(),
+                    duration_seconds=duration,
+                    error=str(exc)[:800],
+                )
+            except Exception:  # noqa: BLE001
+                pass
             failed = booklog.summary()["failed"]
             log_line(f"✗ FAILED: {name} — {exc}")
             STATE.update(books_failed=failed)
+            if isinstance(exc, DriveError):
+                consecutive_drive_failures += 1
+                if consecutive_drive_failures >= 4:
+                    log_line("Drive appears to be down — exiting for restart")
+                    if not args.dry_run:
+                        fatal_report(
+                            f"circuit breaker: {consecutive_drive_failures} "
+                            f"consecutive Drive failures — restarting")
+                    return 1
+            else:
+                consecutive_drive_failures = 0
         finally:
             # 4. never keep PDFs or outputs around (and never in the repo)
             shutil.rmtree(book_dir, ignore_errors=True)
@@ -655,4 +698,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001
+        import traceback as _tb
+        fatal_report("FATAL: " + "".join(
+            _tb.format_exception(type(exc), exc, exc.__traceback__))[-1500:])
+        raise

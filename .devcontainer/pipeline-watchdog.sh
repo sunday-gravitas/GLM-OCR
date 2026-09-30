@@ -71,13 +71,14 @@ if [ "$READY" = "1" ]; then
   if [ -n "${CODESPACE_NAME:-}" ] && command -v gh >/dev/null 2>&1; then
     gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" >/dev/null 2>&1 || true
   fi
-  if pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1; then
+  if pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1 \
+     || pgrep -f "[p]ipeline-supervisor.sh" >/dev/null 2>&1; then
     log "pipeline already running"
     mark "watchdog-done" --note "pipeline already running" --logs
   else
-    log "environment ready — launching pipeline"
-    mark "pipeline-launching" --note "environment ready"
-    launch /tmp/pipeline.log "python3 pipeline/run_ocr_pipeline.py"
+    log "environment ready — launching pipeline supervisor"
+    mark "pipeline-launching" --note "environment ready (supervisor)"
+    launch /tmp/supervisor.log "bash .devcontainer/pipeline-supervisor.sh"
   fi
 else
   log "environment not ready — launching bootstrap"

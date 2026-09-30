@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -34,6 +35,32 @@ MAX_ATTEMPTS = 6
 
 class DriveError(RuntimeError):
     """Raised when a Drive API call ultimately fails."""
+
+
+def _run_bounded(fn, seconds: float):
+    """Run fn() with a hard wall-clock bound.
+
+    Network calls can block forever when DNS/egress hangs (socket timeouts
+    do NOT cover getaddrinfo). We run the call in a worker thread and simply
+    ABANDON the thread if it exceeds the bound — the leaked thread is
+    harmless, and the caller can retry with a fresh connection.
+    """
+    result: Dict[str, Any] = {}
+
+    def target():
+        try:
+            result["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001
+            result["exc"] = exc
+
+    worker = threading.Thread(target=target, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if "value" in result:
+        return result["value"]
+    if "exc" in result:
+        raise result["exc"]
+    raise TimeoutError(f"network call abandoned after {seconds}s (hang)")
 
 
 class DriveClient:
@@ -54,10 +81,11 @@ class DriveClient:
             "refresh_token": self.refresh_token,
         }).encode()
         try:
-            with urllib.request.urlopen(
-                urllib.request.Request(self.token_uri, data=data), timeout=60
-            ) as resp:
-                payload = json.loads(resp.read())
+            def _do():
+                req = urllib.request.Request(self.token_uri, data=data)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    return json.loads(resp.read())
+            payload = _run_bounded(_do, seconds=90)
         except urllib.error.HTTPError as exc:
             raise DriveError(
                 f"Drive token refresh failed ({exc.code}): "
@@ -93,8 +121,10 @@ class DriveClient:
             if content_type:
                 req.add_header("Content-Type", content_type)
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return {"status": resp.status, "bytes": resp.read()}
+                def _do(r=req):
+                    with urllib.request.urlopen(r, timeout=timeout) as resp:
+                        return {"status": resp.status, "bytes": resp.read()}
+                return _run_bounded(_do, seconds=timeout + 20)
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 payload = exc.read()
@@ -107,7 +137,7 @@ class DriveClient:
                     continue
                 last = {"status": status, "bytes": payload, "error": True}
                 break
-            except OSError as exc:
+            except (OSError, TimeoutError) as exc:
                 if attempts >= MAX_ATTEMPTS:
                     raise DriveError(f"{method} {url}: {exc}") from exc
                 time.sleep(min(2 ** attempts, 30))

@@ -165,13 +165,14 @@ if [ -n "${CODESPACE_NAME:-}" ] && command -v gh >/dev/null 2>&1; then
 fi
 
 STAGE="pipeline-launch"
-if pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
-  log "pipeline already running — not starting another"
+if pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1 \
+   || pgrep -f "[p]ipeline-supervisor.sh" >/dev/null 2>&1; then
+  log "pipeline/supervisor already running — not starting another"
 else
-  log "launching pipeline…"
+  log "launching pipeline supervisor…"
   mkdir -p /tmp/ocr-work
-  setsid --fork bash -c "exec python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1" < /dev/null
-  log "pipeline launched (log: /tmp/pipeline.log)"
+  setsid --fork bash -c "exec bash .devcontainer/pipeline-supervisor.sh >> /tmp/supervisor.log 2>&1" < /dev/null
+  log "pipeline supervisor launched (logs: /tmp/pipeline.log, /tmp/supervisor.log)"
 fi
 mark "pipeline-launched"
 
