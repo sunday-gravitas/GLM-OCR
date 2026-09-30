@@ -10,9 +10,18 @@ exec 9>/tmp/pipeline-supervisor.lock
 flock -n 9 || exit 0   # single supervisor instance
 
 log() { echo "[supervisor $(date -u +%H:%M:%S)] $*" >> /tmp/pipeline.log; }
+mark() { python3 pipeline/status_marker.py --status "supervisor" \
+           --note "$1" --logs --state >/dev/null 2>&1 || true; }
 log "supervisor up (pid $$)"
+LAST_MARK=0
 
 while true; do
+  NOW=$(date +%s)
+  if [ $((NOW - LAST_MARK)) -ge 120 ]; then
+    MARK_NOTE="alive; pipeline=$(pgrep -f '[r]un_ocr_pipeline.py' >/dev/null 2>&1 && echo running || echo stopped)"
+    mark "$MARK_NOTE"
+    LAST_MARK=$NOW
+  fi
   # standalone status server (separate process so the pipeline itself never
   # binds a port — binding coincided with losing outbound connectivity)
   if ! pgrep -f "[s]tatus_server.py" >/dev/null 2>&1; then
@@ -28,6 +37,8 @@ while true; do
   fi
   log "pipeline not running — starting"
   python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1
-  log "pipeline exited (code $?) — restart in 60s"
+  CODE=$?
+  log "pipeline exited (code $CODE) — restart in 60s"
+  mark "pipeline-exit code=$CODE"
   sleep 60
 done

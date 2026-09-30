@@ -61,6 +61,8 @@ def main() -> int:
     ap.add_argument("--logs", action="store_true",
                     help="append tails of /tmp/pipeline.log and "
                          "/tmp/pipeline-bootstrap.log")
+    ap.add_argument("--state", action="store_true",
+                    help="embed /tmp/pipeline_state.json")
     args = ap.parse_args()
 
     creds_path = Path(__file__).resolve().parent.parent / ".drive-creds.json"
@@ -88,13 +90,20 @@ def main() -> int:
         for label, path in (
             ("pipeline_log_tail", "/tmp/pipeline.log"),
             ("bootstrap_log_tail", "/tmp/pipeline-bootstrap.log"),
+            ("supervisor_log_tail", "/tmp/supervisor.log"),
             ("ollama_log_tail", "/tmp/ollama.log"),
         ):
             try:
-                text = Path(path).read_text(errors="replace").splitlines()[-40:]
+                text = Path(path).read_text(errors="replace").splitlines()[-60:]
                 payload[label] = "\n".join(text)
             except OSError:
                 payload[label] = "(not available)"
+    if args.state:
+        try:
+            payload["pipeline_state"] = json.loads(
+                Path("/tmp/pipeline_state.json").read_text())
+        except (OSError, ValueError):
+            payload["pipeline_state"] = "(not available)"
     body = json.dumps(payload, indent=2).encode()
 
     # find existing marker file (update-in-place keeps a single status file)
