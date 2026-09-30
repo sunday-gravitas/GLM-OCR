@@ -37,6 +37,20 @@ if ! bash .devcontainer/fetch-drive-creds.sh; then
 fi
 mark "credentials-ready"
 
+# detached progress reporter: pushes log tails to Drive every 5 minutes
+# for as long as this bootstrap (or any) is running
+setsid --fork bash -c '
+  while true; do
+    sleep 300
+    cd /workspaces/GLM-OCR 2>/dev/null || exit 0
+    if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1; then
+      python3 pipeline/status_marker.py --status "bootstrap-progress" --logs >/dev/null 2>&1 || true
+    else
+      exit 0
+    fi
+  done
+' >/dev/null 2>&1 < /dev/null || true
+
 # --------------------------------------------------------------------------
 # 1. Python environment + GLM-OCR SDK (from this repo)
 # --------------------------------------------------------------------------
@@ -66,6 +80,7 @@ mark "python-deps-done"
 # --------------------------------------------------------------------------
 if [ -z "${ZHIPU_API_KEY:-}" ]; then
   STAGE="ollama-install"
+  mark "ollama-install-started"
   if ! command -v ollama >/dev/null 2>&1; then
     log "installing Ollama…"
     ok=0
