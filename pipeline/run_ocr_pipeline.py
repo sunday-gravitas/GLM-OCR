@@ -221,7 +221,8 @@ def build_engine() -> Any:
 
 def env_dump() -> Dict[str, str]:
     out: Dict[str, str] = {}
-    for mod in ("torch", "torchvision", "cv2", "numpy", "PIL", "pymupdf"):
+    for mod in ("torch", "torchvision", "transformers", "tokenizers",
+                "safetensors", "accelerate", "cv2", "numpy", "PIL", "pymupdf"):
         try:
             m = __import__(mod)
             out[mod] = str(getattr(m, "__version__", "?"))
@@ -262,7 +263,7 @@ def layout_probe(image_path: str) -> Dict[str, Any]:
         from glmocr.config import load_config
         from glmocr.layout.layout_detector import PPDocLayoutDetector
 
-        cfg = load_config(config_path="/tmp/glmocr_engine.yaml")
+        cfg = load_config("/tmp/glmocr_engine.yaml")
         detector = PPDocLayoutDetector(cfg.pipeline.layout)
         detector.start()
         result = detector.detect(image_path)
