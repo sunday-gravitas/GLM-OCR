@@ -351,6 +351,7 @@ class BookLog:
                  folders: Dict[str, str]):
         self.drive = drive
         self.folder_id = folder_id
+        self.enabled = True
         self.payload: Dict[str, Any] = {
             "pipeline": PIPELINE_ID,
             "description": (
@@ -386,6 +387,8 @@ class BookLog:
             self.book_index[entry["drive_file_id"]] = entry
 
     def push(self, note: Optional[str] = None) -> None:
+        if not self.enabled:
+            return
         self.payload["last_updated"] = utcnow()
         self.payload["summary"] = self.summary()
         if note:
@@ -507,6 +510,7 @@ def main() -> int:
     booklog = BookLog(drive, ocrbook_meta["id"], engine_info, folders)
     if args.dry_run:
         booklog.folder_id = "DRY-RUN"  # never touch Drive in dry-run mode
+        booklog.enabled = False
 
     STATE.update(engine=engine_info, books_total=len(books), status="running")
 

@@ -57,6 +57,11 @@ setsid --fork bash -c '
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 STAGE="python-deps"
 
+# guard against packages corrupted by previously-killed installs —
+# the OCR SDK itself needs a healthy requests/urllib3 to talk to Ollama
+pip install --quiet --force-reinstall requests urllib3 certifi idna \
+  || log "WARNING: force-reinstall of networking packages failed"
+
 if python3 -c "import glmocr" >/dev/null 2>&1; then
   log "glmocr already installed — skipping"
 else
