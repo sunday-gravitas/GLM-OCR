@@ -218,6 +218,32 @@ def build_engine() -> Any:
     }
 
 
+def engine_selftest(parser: Any) -> Dict[str, Any]:
+    """Run the engine on a synthetic image; zero output means the layout
+    detector is broken (corrupt cache / bad build), not just a weird PDF."""
+    try:
+        from PIL import Image, ImageDraw
+
+        img = Image.new("RGB", (1000, 700), "white")
+        draw = ImageDraw.Draw(img)
+        draw.text((80, 80), "HELLO WORLD OCR SELF TEST 12345", fill="black")
+        draw.text((80, 160), "The quick brown fox jumps over the lazy dog.", fill="black")
+        draw.rectangle((80, 300, 920, 520), outline="black", width=3)
+        draw.text((120, 390), "Column A    Column B    Column C", fill="black")
+        path = Path("/tmp/ocr_selftest.png")
+        img.save(path)
+        result = parser.parse(str(path))
+        md = result.markdown_result or ""
+        structured = result.json_result
+        regions = 0
+        if isinstance(structured, list):
+            regions = sum(len(pg) for pg in structured if isinstance(pg, list))
+        return {"markdown_chars": len(md), "regions": regions,
+                "sample": md.strip()[:120]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:300]}
+
+
 def ocr_book(parser: Any, pdf_path: Path, out_dir: Path) -> Dict[str, Any]:
     """OCR one PDF with the GLM-OCR engine; return {markdown, json, pages}."""
     result = parser.parse(str(pdf_path))
@@ -229,14 +255,21 @@ def ocr_book(parser: Any, pdf_path: Path, out_dir: Path) -> Dict[str, Any]:
         except json.JSONDecodeError:
             structured = {"raw": structured}
     pages = None
+    regions = 0
     if isinstance(structured, list):
         pages = len(structured)
+        regions = sum(len(pg) for pg in structured if isinstance(pg, list))
     elif isinstance(structured, dict) and isinstance(
         structured.get("layout_details"), list
     ):
         pages = len(structured["layout_details"])
+    if pages and regions == 0 and not markdown.strip():
+        raise RuntimeError(
+            f"empty OCR output: {pages} pages rendered but 0 regions "
+            f"detected (layout detector problem)")
     out_dir.mkdir(parents=True, exist_ok=True)
-    return {"markdown": markdown, "json": structured, "pages": pages}
+    return {"markdown": markdown, "json": structured, "pages": pages,
+            "regions": regions}
 
 
 # ------------------------------------------------------- status & keep-alive
@@ -364,6 +397,14 @@ class BookLog:
             except Exception as exc:  # noqa: BLE001
                 log_line(f"WARNING: could not load existing log: {exc}")
         for entry in self.payload["books"]:
+            # books marked done with empty output (broken engine era) are
+            # reset so they get reprocessed
+            if entry.get("status") == "done" and (
+                not entry.get("markdown_chars")
+                or not entry.get("output_md")
+            ):
+                entry["status"] = "pending"
+                entry["note"] = "reset: empty output from broken engine"
             self.book_index[entry["drive_file_id"]] = entry
 
     def push(self, note: Optional[str] = None) -> None:
@@ -514,6 +555,35 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             engine_info = {"mode": "failed", "error": str(exc)[:500]}
             log_line(f"FATAL: engine init failed: {exc}")
+            engine = None
+        if engine is not None:
+            st = engine_selftest(engine)
+            engine_info["selftest"] = st
+            if not st.get("markdown_chars"):
+                log_line(f"WARNING: engine self-test EMPTY — {st}")
+                # one-shot: clear the HF layout-model cache and rebuild
+                marker = Path("/tmp/.layout_cache_cleared")
+                if not marker.exists():
+                    marker.touch()
+                    import shutil as _sh
+                    for cache in (
+                        Path.home() / ".cache/huggingface/hub"
+                        / "models--PaddlePaddle--PP-DocLayoutV3_safetensors",
+                        Path.home() / ".cache/huggingface"
+                        / "models--PaddlePaddle--PP-DocLayoutV3_safetensors",
+                    ):
+                        if cache.exists():
+                            _sh.rmtree(cache, ignore_errors=True)
+                            log_line(f"cleared layout model cache {cache}")
+                    try:
+                        engine.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    engine, engine_info = build_engine()
+                    st2 = engine_selftest(engine)
+                    engine_info["selftest_after_cache_clear"] = st2
+            else:
+                log_line(f"engine self-test OK: {st.get('sample')!r}")
         booklog.payload["engine"] = engine_info
         booklog.push(f"engine ready: {engine_info.get('mode')}")
         STATE.update(engine=engine_info)
@@ -555,6 +625,7 @@ def main() -> int:
                 md = f"# {stem}\n\n(dry-run fake OCR output)"
                 structured = {"dry_run": True, "pages": 3}
                 pages = 3
+                regions = 3
                 out_dir = book_dir / "out"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 (out_dir / f"{stem}.md").write_text(md, "utf-8")
@@ -602,13 +673,14 @@ def main() -> int:
                 completed_at=utcnow(),
                 duration_seconds=duration,
                 pages=pages,
+                regions=regions,
                 markdown_chars=len(md),
                 **uploads,
             )
             done = booklog.summary()["done"]
             consecutive_drive_failures = 0
-            log_line(f"✓ done: {name} — pages={pages} in {duration}s "
-                     f"({done}/{len(books)} complete)")
+            log_line(f"✓ done: {name} — pages={pages} regions={regions} "
+                     f"in {duration}s ({done}/{len(books)} complete)")
             STATE.update(books_done=done)
 
         except Exception as exc:  # noqa: BLE001
