@@ -55,10 +55,10 @@ fi
 
 if [ -n "${ZHIPU_API_KEY:-}" ]; then
   READY=1
-  python3 -c "import glmocr, yaml" >/dev/null 2>&1 || READY=0
+  (cd /tmp && python3 -c "import glmocr, yaml") >/dev/null 2>&1 || READY=0
 else
   READY=1
-  python3 -c "import glmocr, yaml" >/dev/null 2>&1 || READY=0
+  (cd /tmp && python3 -c "import glmocr, yaml") >/dev/null 2>&1 || READY=0
   command -v ollama >/dev/null 2>&1 || READY=0
   curl -sf http://127.0.0.1:11434/api/version >/dev/null 2>&1 || READY=0
   [ -f /tmp/ollama_model.txt ] || READY=0

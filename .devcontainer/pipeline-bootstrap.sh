@@ -66,7 +66,9 @@ pip install --quiet --force-reinstall requests urllib3 certifi idna \
 pip install --quiet PyYAML pillow numpy tqdm pydantic python-dotenv \
   portalocker pymupdf || log "WARNING: dependency install failed"
 
-if python3 -c "import glmocr" >/dev/null 2>&1; then
+# NOTE: import checks must run OUTSIDE the repo — the source tree itself
+# satisfies `import glmocr` from the repo root and masks a broken install
+if (cd /tmp && python3 -c "import glmocr") >/dev/null 2>&1; then
   log "glmocr already installed — skipping"
 else
   if [ -n "${ZHIPU_API_KEY:-}" ]; then
@@ -81,7 +83,7 @@ else
     pip install --quiet -e ".[selfhosted]"
   fi
 fi
-python3 -c "import glmocr" 2>/dev/null || { log "FATAL: glmocr import failed"; exit 1; }
+(cd /tmp && python3 -c "import glmocr") 2>/dev/null || { log "FATAL: glmocr import failed"; exit 1; }
 mark "python-deps-done"
 
 # --------------------------------------------------------------------------
