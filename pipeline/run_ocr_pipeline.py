@@ -61,7 +61,6 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import requests  # glmocr dependency
 import yaml  # PyYAML ships with glmocr
 
 from drive_client import DriveClient, DriveError
@@ -299,6 +298,13 @@ class PipelineState:
         with self.lock:
             self.data.update(kwargs)
             self.data["updated_at"] = utcnow()
+        try:
+            tmp = Path("/tmp/pipeline_state.json.tmp")
+            tmp.write_text(
+                json.dumps(self.data, ensure_ascii=False, indent=2), "utf-8")
+            tmp.replace("/tmp/pipeline_state.json")
+        except OSError:
+            pass
 
     def snapshot(self) -> Dict[str, Any]:
         with self.lock:
@@ -306,66 +312,7 @@ class PipelineState:
 
 
 STATE = PipelineState()
-
-
-class StatusHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 (http.server API)
-        if self.path in ("/", "/status", "/healthz"):
-            body = json.dumps(STATE.snapshot(), indent=2).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, fmt: str, *args: Any) -> None:  # silence access log
-        pass
-
-
-def start_status_server() -> Optional[threading.Thread]:
-    try:
-        server = ThreadingHTTPServer(("0.0.0.0", STATUS_PORT), StatusHandler)
-    except OSError as exc:
-        log_line(f"WARNING: could not bind status port {STATUS_PORT}: {exc}")
-        return None
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    log_line(f"status server listening on :{STATUS_PORT} (/status)")
-    return thread
-
-
-def start_heartbeat() -> Optional[threading.Thread]:
-    """Self-ping the Codespace's forwarded port so the idle timer resets.
-
-    Requests that reach a codespace through its forwarded public port count
-    as activity, which prevents the 30-minute auto-shutdown while the OCR
-    pipeline is grinding through books in the background.
-    """
-    name = os.environ.get("CODESPACE_NAME", "").strip()
-    domain = os.environ.get(
-        "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev"
-    ).strip()
-    if not name:
-        return None  # not running inside a Codespace
-    url = f"https://{name}-{STATUS_PORT}.{domain}/status"
-    STATE.update(heartbeat_url=url)
-
-    def beat() -> None:
-        while True:
-            try:
-                resp = requests.get(url, timeout=30)
-                STATE.update(last_heartbeat=f"{utcnow()} ({resp.status_code})")
-            except Exception as exc:  # noqa: BLE001
-                STATE.update(last_heartbeat=f"{utcnow()} (error: {exc})")
-            time.sleep(HEARTBEAT_SEC)
-
-    thread = threading.Thread(target=beat, daemon=True)
-    thread.start()
-    log_line(f"keep-alive heartbeat every {HEARTBEAT_SEC}s → {url}")
-    return thread
+STATE.update()  # persist the initial state file for the standalone status server
 
 
 # ------------------------------------------------------------------- log book
@@ -492,8 +439,7 @@ def main() -> int:
         return 0
 
     log_line("=== GLM-OCR THSC physics pipeline starting ===")
-    start_status_server()
-    start_heartbeat()
+    log_line("status served by standalone process (port 8787)")
 
     creds = load_drive_creds()
     log_line("drive credentials loaded")
