@@ -191,10 +191,11 @@ def write_engine_config(model_name: str, port: int = 11434) -> Path:
     cfg.setdefault("logging", {})["level"] = os.environ.get(
         "GLMOCR_LOG_LEVEL", "INFO")
 
-    # JSON is a subset of YAML 1.2 — safe_load parses it fine, and this
-    # avoids a hard dependency on PyYAML for the pipeline process
+    # NOTE: must be written with yaml.safe_dump — json.dumps output looks
+    # like YAML but YAML 1.1 mis-parses bare scientific notation ("1e-05"
+    # becomes a string) and int keys, silently breaking the layout detector
     path = Path("/tmp/glmocr_engine.yaml")
-    path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -235,14 +236,48 @@ def engine_selftest(parser: Any) -> Dict[str, Any]:
     """Run the engine on a synthetic image; zero output means the layout
     detector is broken (corrupt cache / bad build), not just a weird PDF."""
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageDraw, ImageFont
 
-        img = Image.new("RGB", (1000, 700), "white")
+        # document-scale image with a real font — the detector is trained
+        # on document scans; tiny default-font text is NOT detected
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
+        font = None
+        for fp in font_paths:
+            if Path(fp).exists():
+                font = ImageFont.truetype(fp, 36)
+                break
+        if font is None:
+            font = ImageFont.load_default()
+        img = Image.new("RGB", (1654, 2339), "white")  # A4 at 200dpi
         draw = ImageDraw.Draw(img)
-        draw.text((80, 80), "HELLO WORLD OCR SELF TEST 12345", fill="black")
-        draw.text((80, 160), "The quick brown fox jumps over the lazy dog.", fill="black")
-        draw.rectangle((80, 300, 920, 520), outline="black", width=3)
-        draw.text((120, 390), "Column A    Column B    Column C", fill="black")
+        draw.text((120, 140), "Physics Examination Practice Paper", font=font, fill="black")
+        draw.text((120, 260), "Question 1. A projectile is launched with velocity v at angle 0.",
+                  font=font, fill="black")
+        draw.text((120, 340), "Question 2. Explain the conservation of mechanical energy.",
+                  font=font, fill="black")
+        draw.text((120, 460), "The quick brown fox jumps over the lazy dog while the",
+                  font=font, fill="black")
+        draw.text((120, 520), "examiner prepares the marking guidelines for this test.",
+                  font=font, fill="black")
+        # a simple table
+        ty = 800
+        draw.rectangle((120, ty, 1534, ty + 400), outline="black", width=4)
+        for i in range(1, 4):
+            draw.line((120 + i * 353, ty, 120 + i * 353, ty + 400), fill="black", width=3)
+        draw.line((120, ty + 130, 1534, ty + 130), fill="black", width=3)
+        draw.text((160, ty + 40), "Quantity", font=font, fill="black")
+        draw.text((540, ty + 40), "Symbol", font=font, fill="black")
+        draw.text((920, ty + 40), "Unit", font=font, fill="black")
+        draw.text((160, ty + 180), "Force", font=font, fill="black")
+        draw.text((540, ty + 180), "F", font=font, fill="black")
+        draw.text((920, ty + 180), "newton", font=font, fill="black")
+        draw.text((160, ty + 300), "Energy", font=font, fill="black")
+        draw.text((540, ty + 300), "E", font=font, fill="black")
+        draw.text((920, ty + 300), "joule", font=font, fill="black")
         path = Path("/tmp/ocr_selftest.png")
         img.save(path)
         result = parser.parse(str(path))
