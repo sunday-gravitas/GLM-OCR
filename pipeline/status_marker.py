@@ -58,6 +58,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--status", required=True)
     ap.add_argument("--note", default="")
+    ap.add_argument("--logs", action="store_true",
+                    help="append tails of /tmp/pipeline.log and "
+                         "/tmp/pipeline-bootstrap.log")
     args = ap.parse_args()
 
     creds_path = Path(__file__).resolve().parent.parent / ".drive-creds.json"
@@ -81,6 +84,17 @@ def main() -> int:
         "note": args.note,
         "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if args.logs:
+        for label, path in (
+            ("pipeline_log_tail", "/tmp/pipeline.log"),
+            ("bootstrap_log_tail", "/tmp/pipeline-bootstrap.log"),
+            ("ollama_log_tail", "/tmp/ollama.log"),
+        ):
+            try:
+                text = Path(path).read_text(errors="replace").splitlines()[-40:]
+                payload[label] = "\n".join(text)
+            except OSError:
+                payload[label] = "(not available)"
     body = json.dumps(payload, indent=2).encode()
 
     # find existing marker file (update-in-place keeps a single status file)

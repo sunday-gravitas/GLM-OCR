@@ -442,33 +442,25 @@ def main() -> int:
     books = pdf_books(drive.list_children(subject_meta["id"]))
     log_line(f"found {len(books)} PDF books in {SUBJECT_NAME}")
 
-    # engine -------------------------------------------------------------
-    engine_info: Dict[str, Any]
-    engine: Any
-    if args.dry_run:
-        engine_info = {"mode": "dry-run", "model": "fake"}
-        engine = None
-    else:
-        try:
-            engine, engine_info = build_engine()
-        except Exception as exc:  # noqa: BLE001
-            engine_info = {"mode": "failed", "error": str(exc)[:500]}
-            log_line(f"FATAL: engine init failed: {exc}")
-            engine = None
-
     folders = {
         "thsc_root": thsc_meta["id"],
         "level": f"{level_meta['name']} ({level_meta['id']})",
         "subject": f"{subject_meta['name']} ({subject_meta['id']})",
         "output": f"{OCR_BOOK_DIR_NAME} ({ocrbook_meta['id']})",
     }
-    booklog = BookLog(drive, ocrbook_meta["id"], engine_info, folders)
+
+    # engine ------------------------------------------------------------
+    # initial log push happens BEFORE engine init — the layout model may
+    # take minutes to download/load on the first run
+    engine_info: Dict[str, Any] = {"mode": "initializing"}
+    engine: Any = None
+    booklog = BookLog(drive, ocr_book_meta["id"], engine_info, folders)
     if args.dry_run:
         booklog.folder_id = "DRY-RUN"  # never touch Drive in dry-run mode
 
     STATE.update(engine=engine_info, books_total=len(books), status="running")
 
-    # load previous state --------------------------------------------------
+    # load previous state -------------------------------------------------
     if not args.dry_run:
         booklog.load()
     for meta in books:
@@ -477,7 +469,19 @@ def main() -> int:
         if entry["status"] == "processing":
             entry["status"] = "pending"
             entry["note"] = "recovered from interrupted run"
-    booklog.push(f"run started; {len(books)} books discovered")
+    booklog.push(f"run started; {len(books)} books discovered; engine loading")
+
+    if args.dry_run:
+        booklog.payload["engine"] = {"mode": "dry-run", "model": "fake"}
+    else:
+        try:
+            engine, engine_info = build_engine()
+        except Exception as exc:  # noqa: BLE001
+            engine_info = {"mode": "failed", "error": str(exc)[:500]}
+            log_line(f"FATAL: engine init failed: {exc}")
+        booklog.payload["engine"] = engine_info
+        booklog.push(f"engine ready: {engine_info.get('mode')}")
+        STATE.update(engine=engine_info)
 
     # main loop — ONE BOOK AT A TIME ---------------------------------------
     attempted = 0
