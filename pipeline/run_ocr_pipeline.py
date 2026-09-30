@@ -477,10 +477,10 @@ class BookLog:
             except Exception as exc:  # noqa: BLE001
                 log_line(f"WARNING: could not load existing log: {exc}")
         for entry in self.payload["books"]:
-            # books marked done with empty output (broken engine era) are
-            # reset so they get reprocessed
+            # books marked done with empty/near-empty output (broken
+            # engine era) are reset so they get reprocessed
             if entry.get("status") == "done" and (
-                not entry.get("markdown_chars")
+                (entry.get("markdown_chars") or 0) < 200
                 or not entry.get("output_md")
             ):
                 entry["status"] = "pending"
