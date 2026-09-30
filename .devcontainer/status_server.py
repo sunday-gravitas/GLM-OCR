@@ -27,7 +27,7 @@ from pathlib import Path
 STATE_FILE = Path("/tmp/pipeline_state.json")
 PORT = int(os.environ.get("OCR_STATUS_PORT", "8787"))
 SELF_PING = os.environ.get("OCR_SELF_PING", "1") == "1"
-PING_INTERVAL = int(os.environ.get("OCR_HEARTBEAT_SEC", "600"))
+PING_INTERVAL = int(os.environ.get("OCR_HEARTBEAT_SEC", "300"))
 
 
 def read_state() -> bytes:

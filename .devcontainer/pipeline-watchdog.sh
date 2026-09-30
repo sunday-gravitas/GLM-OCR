@@ -69,7 +69,9 @@ if [ "$READY" = "1" ]; then
   # Best effort: publish the /status monitoring port so the pipeline's
   # self-ping keep-alive counts as codespace activity (see bootstrap).
   if [ -n "${CODESPACE_NAME:-}" ] && command -v gh >/dev/null 2>&1; then
-    gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" >/dev/null 2>&1 || true
+    GH_OUT=$(gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" 2>&1) \
+      && mark "port-published" --note "8787 public: $GH_OUT" \
+      || mark "port-publish-failed" --note "gh: ${GH_OUT:0:200}"
   fi
   if pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1 \
      || pgrep -f "[p]ipeline-supervisor.sh" >/dev/null 2>&1; then
