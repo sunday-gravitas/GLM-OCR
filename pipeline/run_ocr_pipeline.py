@@ -606,29 +606,6 @@ def main() -> int:
             st = engine_selftest(engine)
             engine_info["selftest"] = st
             if not st.get("markdown_chars"):
-                # one-shot: clear the HF layout-model cache and rebuild
-                cache_marker = Path("/tmp/.layout_cache_cleared")
-                if not cache_marker.exists():
-                    cache_marker.touch()
-                    import shutil as _sh
-                    for cache in (
-                        Path.home() / ".cache/huggingface/hub"
-                        / "models--PaddlePaddle--PP-DocLayoutV3_safetensors",
-                        Path.home() / ".cache/huggingface"
-                        / "models--PaddlePaddle--PP-DocLayoutV3_safetensors",
-                    ):
-                        if cache.exists():
-                            _sh.rmtree(cache, ignore_errors=True)
-                            log_line(f"cleared layout model cache {cache}")
-                    try:
-                        engine.close()
-                    except Exception:  # noqa: BLE001
-                        pass
-                    engine, engine_info = build_engine()
-                    engine_info["env"] = env_dump()
-                    st = engine_selftest(engine)
-                    engine_info["selftest_after_cache_clear"] = st
-            if not st.get("markdown_chars"):
                 probe = layout_probe("/tmp/ocr_selftest.png")
                 engine_info["layout_probe"] = probe
                 log_line(f"FATAL: engine self-test EMPTY — env={engine_info['env']} probe={probe}")
