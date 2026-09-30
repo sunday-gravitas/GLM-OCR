@@ -21,6 +21,14 @@ log() { echo "[bootstrap $(date -u +%H:%M:%S)] $*"; }
 log "starting bootstrap in $(pwd)"
 
 # --------------------------------------------------------------------------
+# 0. Google Drive credentials (short-lived public handoff, burned after read;
+#    skipped when the DRIVE_CREDS_JSON Codespaces secret is set instead)
+# --------------------------------------------------------------------------
+if ! bash .devcontainer/fetch-drive-creds.sh; then
+  log "WARNING: no Drive credentials yet — pipeline will report FATAL until they exist"
+fi
+
+# --------------------------------------------------------------------------
 # 1. Python environment + GLM-OCR SDK (from this repo)
 # --------------------------------------------------------------------------
 export PIP_DISABLE_PIP_VERSION_CHECK=1

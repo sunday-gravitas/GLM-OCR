@@ -34,11 +34,12 @@ the log are skipped, so the run is fully resumable.
 | `.devcontainer/pipeline-bootstrap.sh` | One-time setup + auto-start of the pipeline |
 | `.devcontainer/pipeline-watchdog.sh` | Resume/restart logic for codespace restarts |
 
-## Required Codespace secret
+## Credentials (pick one channel — see "Credential delivery" below)
 
-| Secret | Value |
-|--------|-------|
-| `DRIVE_CREDS_JSON` | Google OAuth credentials JSON with `client_id`, `client_secret`, `refresh_token` (scope `drive.file`) for the THSC folder |
+Either a `DRIVE_CREDS_JSON` Codespaces secret, or the automated Drive
+handoff (`.drive-creds.json` inside the codespace). Google OAuth credentials
+JSON with `client_id`, `client_secret`, `refresh_token` (scope
+`drive.file`) for the THSC folder.
 
 Optional secrets / env:
 
@@ -55,6 +56,26 @@ Optional secrets / env:
 * Inside the codespace: `tail -f /tmp/pipeline.log`, or open the forwarded
   port `8787` → `/status` (the pipeline also self-pings this port every
   10 min so the codespace is not auto-stopped while working).
+
+## Credential delivery (Codespaces)
+
+The pipeline needs Google OAuth credentials for the THSC folder. They are
+**never committed to this repository**. Two supported channels, in priority
+order:
+
+1. **Codespaces secret (recommended, zero exposure)** — add a secret named
+   `DRIVE_CREDS_JSON` (GitHub → Settings → Codespaces → Secrets, scope it to
+   this repo) containing the credentials JSON (`client_id`, `client_secret`,
+   `refresh_token`). The pipeline reads it from the environment first.
+2. **Short-lived Drive handoff (automated initial provisioning)** — an
+   operator runs `pipeline/make_handoff.py --creds <file>` locally, which
+   uploads the credentials to Drive as a file readable only via its
+   unguessable link and writes the URL into `pipeline/creds_url.txt`. When a
+   codespace starts, `.devcontainer/fetch-drive-creds.sh` downloads the file
+   into the gitignored `.drive-creds.json` and **immediately deletes the
+   Drive file** (burn after reading), so the link only works for a few
+   minutes. For future runs, either re-create a handoff or (better) add the
+   proper Codespaces secret from option 1.
 
 ## Manual use (inside the codespace)
 

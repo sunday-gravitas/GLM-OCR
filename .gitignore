@@ -176,3 +176,6 @@ data/
 /apps/frontend/dist/
 *.pid
 .DS_Store
+
+# pipeline: local Drive credentials handoff (never commit)
+.drive-creds.json

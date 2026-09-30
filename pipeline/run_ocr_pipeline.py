@@ -97,6 +97,7 @@ def load_drive_creds() -> Dict[str, Any]:
     if not raw:
         for candidate in (
             os.environ.get("DRIVE_CREDS_FILE"),
+            str(Path(__file__).resolve().parent.parent / ".drive-creds.json"),
             "/tmp/drive_creds.json",
             str(Path.home() / ".drive_creds.json"),
             "/run/secrets/drive_creds.json",
