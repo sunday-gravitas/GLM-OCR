@@ -100,6 +100,15 @@ fi
 # --------------------------------------------------------------------------
 # 3. Launch the pipeline (flock-protected against double starts)
 # --------------------------------------------------------------------------
+# Best effort: make the status port public so the pipeline's self-ping
+# keep-alive counts as activity (prevents the 30-min idle auto-stop).
+# Uses the codespace's own authenticated gh CLI; failure is harmless.
+if [ -n "${CODESPACE_NAME:-}" ] && command -v gh >/dev/null 2>&1; then
+  gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" >/dev/null 2>&1 \
+    && log "status port 8787 made public (keep-alive self-ping effective)" \
+    || log "could not publish port 8787 (keep-alive may rely on user interaction)"
+fi
+
 if pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
   log "pipeline already running — not starting another"
 else
