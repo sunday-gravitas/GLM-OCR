@@ -53,6 +53,7 @@ import shutil
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -210,6 +211,46 @@ def ocr_book(parser: Any, pdf_path: Path, out_dir: Path) -> Dict[str, Any]:
 
 
 # ------------------------------------------------------- status & keep-alive
+def _tail(path: str, lines: int = 30) -> str:
+    try:
+        text = Path(path).read_text(errors="replace").splitlines()
+        return "\n".join(text[-lines:])
+    except OSError:
+        return "(not available)"
+
+
+def start_runtime_reporter(drive: DriveClient, folder_id: str) -> None:
+    """Push a status snapshot (+ main-thread stack dump + log tail) to Drive
+    every 5 minutes, so the run can be monitored without codespace access."""
+    main_tid = threading.get_ident()
+
+    def snapshot() -> Dict[str, Any]:
+        data = STATE.snapshot()
+        stack = []
+        for tid, frame in sys._current_frames().items():
+            if tid == main_tid:
+                stack = traceback.format_stack(frame)
+                break
+        data["main_thread_stack"] = "".join(stack[-8:]).strip() or "(empty)"
+        data["pipeline_log_tail"] = _tail("/tmp/pipeline.log")
+        return data
+
+    def report() -> None:
+        while True:
+            time.sleep(300)
+            try:
+                drive.upload_json(folder_id, "pipeline_status.json", snapshot())
+            except Exception as exc:  # noqa: BLE001
+                log_line(f"WARNING: runtime report failed: {exc}")
+
+    threading.Thread(target=report, daemon=True).start()
+    try:
+        drive.upload_json(folder_id, "pipeline_status.json", snapshot())
+        log_line("runtime reporter armed (pipeline_status.json every 5 min)")
+    except DriveError as exc:
+        log_line(f"WARNING: initial runtime report failed: {exc}")
+
+
 class PipelineState:
     """Thread-safe in-memory view of the run, served over HTTP for monitoring."""
 
@@ -438,6 +479,7 @@ def main() -> int:
         f"folders: THSC/{LEVEL_NAME}/{SUBJECT_NAME}/{OCR_BOOK_DIR_NAME} → "
         f"{ocrbook_meta['id']}"
     )
+    start_runtime_reporter(drive, ocrbook_meta["id"])
 
     books = pdf_books(drive.list_children(subject_meta["id"]))
     log_line(f"found {len(books)} PDF books in {SUBJECT_NAME}")
