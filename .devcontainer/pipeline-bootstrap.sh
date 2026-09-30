@@ -58,9 +58,13 @@ export PIP_DISABLE_PIP_VERSION_CHECK=1
 STAGE="python-deps"
 
 # guard against packages corrupted by previously-killed installs —
-# the OCR SDK itself needs a healthy requests/urllib3 to talk to Ollama
+# the OCR SDK itself needs a healthy requests/urllib3 to talk to Ollama.
+# PyYAML is installed explicitly: pip's "already satisfied" fast path for
+# the editable glmocr install skips missing dependencies.
 pip install --quiet --force-reinstall requests urllib3 certifi idna \
   || log "WARNING: force-reinstall of networking packages failed"
+pip install --quiet PyYAML pillow numpy tqdm pydantic python-dotenv \
+  portalocker pymupdf || log "WARNING: dependency install failed"
 
 if python3 -c "import glmocr" >/dev/null 2>&1; then
   log "glmocr already installed — skipping"

@@ -61,7 +61,6 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import yaml  # PyYAML ships with glmocr
 
 from drive_client import DriveClient, DriveError
 
@@ -184,8 +183,10 @@ def write_engine_config(model_name: str, port: int = 11434) -> Path:
     layout["batch_size"] = 1
     cfg.setdefault("logging", {})["level"] = "INFO"
 
+    # JSON is a subset of YAML 1.2 — safe_load parses it fine, and this
+    # avoids a hard dependency on PyYAML for the pipeline process
     path = Path("/tmp/glmocr_engine.yaml")
-    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return path
 
 
