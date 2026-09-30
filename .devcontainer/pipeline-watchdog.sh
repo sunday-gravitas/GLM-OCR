@@ -68,10 +68,20 @@ if [ "$READY" = "1" ]; then
   else
     log "environment ready — launching pipeline"
     mark "pipeline-launching" --note "environment ready"
-    nohup python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1 &
+    setsid nohup python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1 < /dev/null &
+    disown || true
   fi
 else
   log "environment not ready — launching bootstrap"
   mark "bootstrap-launching" --note "environment not ready"
-  nohup bash .devcontainer/pipeline-bootstrap.sh >> /tmp/pipeline-bootstrap.log 2>&1 &
+  setsid nohup bash .devcontainer/pipeline-bootstrap.sh >> /tmp/pipeline-bootstrap.log 2>&1 < /dev/null &
+  disown || true
+fi
+
+# verify background processes survived the lifecycle runner cleanup
+sleep 60
+if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1 || pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
+  mark "watchdog-verified" --note "background processes alive 60s after launch" --logs
+else
+  mark "watchdog-failed" --note "background processes DIED within 60s" --logs
 fi
