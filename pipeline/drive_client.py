@@ -75,7 +75,7 @@ class DriveClient:
         self,
         method: str,
         url: str,
-        timeout: int = 300,
+        timeout: int = 75,
         auth_retries: int = 2,
         **kwargs: Any,
     ) -> requests.Response:

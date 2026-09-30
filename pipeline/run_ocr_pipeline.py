@@ -468,19 +468,27 @@ def main() -> int:
     start_heartbeat()
 
     creds = load_drive_creds()
+    log_line("drive credentials loaded")
     drive = DriveClient(creds)
+    # arm the runtime reporter EARLY (before any Drive call can hang), so a
+    # stack dump + step log always reaches Drive
+    start_runtime_reporter(drive, os.environ.get(
+        "OCR_BOOK_FOLDER_ID", "1iDlabXG8aF9zxSyB7EzlOboL2N-buNqj"))
 
     # folder resolution ------------------------------------------------------
+    log_line("resolving folders: THSC → level11 → physics → ocr-book …")
     thsc_meta = {"id": THSC_FOLDER_ID, "name": "THSC (root id)"}
+    log_line(f"listing THSC root ({THSC_FOLDER_ID}) …")
     level_meta = drive.find_folder(THSC_FOLDER_ID, LEVEL_NAME, create=False)
+    log_line(f"found level folder: {level_meta['name']} ({level_meta['id']})")
     subject_meta = drive.find_folder(level_meta["id"], SUBJECT_NAME, create=False)
+    log_line(f"found subject folder: {subject_meta['name']} ({subject_meta['id']})")
     ocrbook_meta = drive.find_folder(subject_meta["id"], OCR_BOOK_DIR_NAME, create=True)
+    log_line(f"output folder: {ocrbook_meta['name']} ({ocrbook_meta['id']})")
     log_line(
         f"folders: THSC/{LEVEL_NAME}/{SUBJECT_NAME}/{OCR_BOOK_DIR_NAME} → "
         f"{ocrbook_meta['id']}"
     )
-    start_runtime_reporter(drive, ocrbook_meta["id"])
-
     books = pdf_books(drive.list_children(subject_meta["id"]))
     log_line(f"found {len(books)} PDF books in {SUBJECT_NAME}")
 
@@ -496,7 +504,7 @@ def main() -> int:
     # take minutes to download/load on the first run
     engine_info: Dict[str, Any] = {"mode": "initializing"}
     engine: Any = None
-    booklog = BookLog(drive, ocr_book_meta["id"], engine_info, folders)
+    booklog = BookLog(drive, ocrbook_meta["id"], engine_info, folders)
     if args.dry_run:
         booklog.folder_id = "DRY-RUN"  # never touch Drive in dry-run mode
 
@@ -632,10 +640,11 @@ def main() -> int:
             shutil.rmtree(book_dir, ignore_errors=True)
 
     summary = booklog.summary()
-    booklog.push(
-        f"run finished — {summary['done']} done, {summary['failed']} failed, "
-        f"{summary['pending']} pending"
-    )
+    if not args.dry_run:
+        booklog.push(
+            f"run finished — {summary['done']} done, {summary['failed']} failed, "
+            f"{summary['pending']} pending"
+        )
     STATE.update(status="finished", current_book=None, detail=summary)
     log_line(f"=== run finished: {summary} ===")
     return 0
