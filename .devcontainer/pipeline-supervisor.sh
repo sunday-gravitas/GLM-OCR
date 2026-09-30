@@ -48,8 +48,26 @@ while true; do
     fi
   fi
 
+  # engine repair: when the pipeline flags a broken engine (layout
+  # self-test empty — typically torch/torchvision ABI mismatch from
+  # interrupted installs), reinstall the vision stack cleanly
+  if [ -f /tmp/.engine_broken ]; then
+    log "engine flagged broken — reinstalling vision stack"
+    mark "engine-repair" --note "reinstalling torch/torchvision/opencv"
+    pip install --quiet --force-reinstall --no-deps \
+      --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+      >> /tmp/pipeline.log 2>&1 || \
+      pip install --quiet --force-reinstall --no-deps torch torchvision \
+      >> /tmp/pipeline.log 2>&1 || true
+    pip install --quiet --force-reinstall opencv-python-headless \
+      >> /tmp/pipeline.log 2>&1 || true
+    rm -f /tmp/.engine_broken /tmp/.layout_cache_cleared
+    log "vision stack reinstalled"
+  fi
+
   log "pipeline not running — starting"
-  python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1
+  GLMOCR_LOG_LEVEL=${GLMOCR_LOG_LEVEL:-DEBUG} \
+    python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1
   CODE=$?
   log "pipeline exited (code $CODE) — restart in 60s"
   mark "pipeline-exit code=$CODE"

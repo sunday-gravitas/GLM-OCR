@@ -188,7 +188,8 @@ def write_engine_config(model_name: str, port: int = 11434) -> Path:
     layout["model_dir"] = "PaddlePaddle/PP-DocLayoutV3_safetensors"
     layout["device"] = "cpu"
     layout["batch_size"] = 1
-    cfg.setdefault("logging", {})["level"] = "INFO"
+    cfg.setdefault("logging", {})["level"] = os.environ.get(
+        "GLMOCR_LOG_LEVEL", "INFO")
 
     # JSON is a subset of YAML 1.2 — safe_load parses it fine, and this
     # avoids a hard dependency on PyYAML for the pipeline process
@@ -218,6 +219,17 @@ def build_engine() -> Any:
     }
 
 
+def env_dump() -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for mod in ("torch", "torchvision", "cv2", "numpy", "PIL", "pymupdf"):
+        try:
+            m = __import__(mod)
+            out[mod] = str(getattr(m, "__version__", "?"))
+        except Exception as exc:  # noqa: BLE001
+            out[mod] = f"IMPORT FAIL: {exc}"[:120]
+    return out
+
+
 def engine_selftest(parser: Any) -> Dict[str, Any]:
     """Run the engine on a synthetic image; zero output means the layout
     detector is broken (corrupt cache / bad build), not just a weird PDF."""
@@ -240,6 +252,36 @@ def engine_selftest(parser: Any) -> Dict[str, Any]:
             regions = sum(len(pg) for pg in structured if isinstance(pg, list))
         return {"markdown_chars": len(md), "regions": regions,
                 "sample": md.strip()[:120]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:300]}
+
+
+def layout_probe(image_path: str) -> Dict[str, Any]:
+    """Run the PP-DocLayout detector directly on an image (bypasses OCR)."""
+    try:
+        from glmocr.config import load_config
+        from glmocr.layout.layout_detector import PPDocLayoutDetector
+
+        cfg = load_config(config_path="/tmp/glmocr_engine.yaml")
+        detector = PPDocLayoutDetector(cfg.pipeline.layout)
+        detector.start()
+        result = detector.detect(image_path)
+        if isinstance(result, dict):
+            boxes = result.get("boxes") or result.get("bboxes") or []
+            scores = result.get("scores") or result.get("confidences") or []
+        elif isinstance(result, (list, tuple)) and len(result) >= 1:
+            boxes, scores = result[0], (result[1] if len(result) > 1 else [])
+        else:
+            boxes, scores = [], []
+        return {
+            "type": type(result).__name__,
+            "num_boxes": len(boxes) if hasattr(boxes, "__len__") else -1,
+            "score_range": (
+                [float(min(scores)), float(max(scores))]
+                if len(scores) else None
+            ),
+            "repr": repr(result)[:300],
+        }
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)[:300]}
 
@@ -557,14 +599,14 @@ def main() -> int:
             log_line(f"FATAL: engine init failed: {exc}")
             engine = None
         if engine is not None:
+            engine_info["env"] = env_dump()
             st = engine_selftest(engine)
             engine_info["selftest"] = st
             if not st.get("markdown_chars"):
-                log_line(f"WARNING: engine self-test EMPTY — {st}")
                 # one-shot: clear the HF layout-model cache and rebuild
-                marker = Path("/tmp/.layout_cache_cleared")
-                if not marker.exists():
-                    marker.touch()
+                cache_marker = Path("/tmp/.layout_cache_cleared")
+                if not cache_marker.exists():
+                    cache_marker.touch()
                     import shutil as _sh
                     for cache in (
                         Path.home() / ".cache/huggingface/hub"
@@ -580,10 +622,20 @@ def main() -> int:
                     except Exception:  # noqa: BLE001
                         pass
                     engine, engine_info = build_engine()
-                    st2 = engine_selftest(engine)
-                    engine_info["selftest_after_cache_clear"] = st2
-            else:
-                log_line(f"engine self-test OK: {st.get('sample')!r}")
+                    engine_info["env"] = env_dump()
+                    st = engine_selftest(engine)
+                    engine_info["selftest_after_cache_clear"] = st
+            if not st.get("markdown_chars"):
+                probe = layout_probe("/tmp/ocr_selftest.png")
+                engine_info["layout_probe"] = probe
+                log_line(f"FATAL: engine self-test EMPTY — env={engine_info['env']} probe={probe}")
+                Path("/tmp/.engine_broken").write_text(utcnow(), "utf-8")
+                if not args.dry_run:
+                    booklog.payload["engine"] = engine_info
+                    booklog.push("engine self-test FAILED — exiting for repair")
+                    fatal_report("engine self-test empty (layout detector broken)")
+                return 1
+            log_line(f"engine self-test OK: {st.get('sample')!r}")
         booklog.payload["engine"] = engine_info
         booklog.push(f"engine ready: {engine_info.get('mode')}")
         STATE.update(engine=engine_info)
