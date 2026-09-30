@@ -139,8 +139,7 @@ if pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
 else
   log "launching pipeline…"
   mkdir -p /tmp/ocr-work
-  setsid nohup python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1 < /dev/null &
-  disown || true
+  setsid --fork bash -c "exec python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1" < /dev/null
   log "pipeline launched (log: /tmp/pipeline.log)"
 fi
 mark "pipeline-launched"

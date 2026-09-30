@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Runs as postStartCommand on every codespace (re)start:
-#   0. push a "watchdog-started" marker (with log tails) to Drive
-#   1. sync the test-ocr branch
+#   1. report alive + sync the test-ocr branch (with Drive markers)
 #   2. fetch Drive credentials (idempotent, fast)
-#   3. bootstrap still running  → do nothing (it will launch the pipeline)
-#      environment ready        → (re)launch the pipeline (resumes from log)
-#      environment not ready    → (re)launch the bootstrap
-# Double-launches are harmless: the Python pipeline takes an exclusive flock.
-# Every decision is reported to Drive as bootstrap_status.json.
+#   3. bootstrap running → nothing; ready → launch pipeline; else → bootstrap
+# All long-running children are launched with `setsid --fork` so they survive
+# the lifecycle runner's process-group cleanup (plain nohup+& gets killed).
+# A detached verifier reports 45s later whether the children stayed alive.
 
 cd "$(dirname "$0")/.."
 log() { echo "[watchdog $(date -u +%H:%M:%S)] $*"; }
 mark() { local s="$1"; shift; python3 pipeline/status_marker.py --status "$s" "$@" \
            >/dev/null 2>&1 || true; }
+launch() {  # launch <logfile> <cmd...>
+  local logfile="$1"; shift
+  setsid --fork bash -c "exec $* >>'$logfile' 2>&1" >/dev/null 2>&1 < /dev/null \
+    || setsid --fork "$@" >>"$logfile" 2>&1 < /dev/null
+}
 
 mark "watchdog-started" --note "postStartCommand is alive"
 log "watchdog started"
@@ -68,20 +71,23 @@ if [ "$READY" = "1" ]; then
   else
     log "environment ready — launching pipeline"
     mark "pipeline-launching" --note "environment ready"
-    setsid nohup python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1 < /dev/null &
-    disown || true
+    launch /tmp/pipeline.log "python3 pipeline/run_ocr_pipeline.py"
   fi
 else
   log "environment not ready — launching bootstrap"
   mark "bootstrap-launching" --note "environment not ready"
-  setsid nohup bash .devcontainer/pipeline-bootstrap.sh >> /tmp/pipeline-bootstrap.log 2>&1 < /dev/null &
-  disown || true
+  launch /tmp/pipeline-bootstrap.log "bash .devcontainer/pipeline-bootstrap.sh"
 fi
 
-# verify background processes survived the lifecycle runner cleanup
-sleep 60
-if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1 || pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
-  mark "watchdog-verified" --note "background processes alive 60s after launch" --logs
-else
-  mark "watchdog-failed" --note "background processes DIED within 60s" --logs
-fi
+# detached verifier: prove (or disprove) that children survive the cleanup
+setsid --fork bash -c '
+  sleep 45
+  cd "$(dirname "$0")/.." 2>/dev/null || cd /workspaces/GLM-OCR
+  if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1 || pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
+    python3 pipeline/status_marker.py --status "watchdog-verified" \
+      --note "background processes alive 45s after launch" --logs >/dev/null 2>&1 || true
+  else
+    python3 pipeline/status_marker.py --status "watchdog-failed" \
+      --note "background processes DIED within 45s" --logs >/dev/null 2>&1 || true
+  fi
+' >/dev/null 2>&1 < /dev/null || true
