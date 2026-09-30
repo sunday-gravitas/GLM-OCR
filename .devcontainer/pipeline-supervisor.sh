@@ -36,13 +36,16 @@ while true; do
     continue
   fi
 
-  # keep the code current: apply branch updates between pipeline runs
-  if [ "${SUPERVISOR_REEXEC:-}" != "1" ]; then
+  # keep the code current: apply branch updates between pipeline runs.
+  # After a reset, HEAD == origin, so re-exec cannot loop; the counter is
+  # only a hard safety cap.
+  REEXECS=${SUPERVISOR_REEXECS:-0}
+  if [ "$REEXECS" -lt 50 ]; then
     if git fetch origin test-ocr --quiet 2>/dev/null; then
       if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/test-ocr)" ]; then
         log "updating to origin/test-ocr ($(git rev-parse --short origin/test-ocr)) — re-exec"
         git reset --hard origin/test-ocr --quiet
-        export SUPERVISOR_REEXEC=1
+        export SUPERVISOR_REEXECS=$((REEXECS + 1))
         exec bash "$0"
       fi
     fi
