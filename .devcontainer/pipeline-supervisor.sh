@@ -58,7 +58,8 @@ while true; do
     log "engine flagged broken — reinstalling vision stack"
     mark "engine-repair" --note "reinstalling torch/torchvision/opencv"
     pip install --quiet --force-reinstall --no-deps \
-      --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+      --index-url https://download.pytorch.org/whl/cpu \
+      torch==2.14.0 torchvision==0.29.0 \
       >> /tmp/pipeline.log 2>&1 || \
       pip install --quiet --force-reinstall --no-deps torch torchvision \
       >> /tmp/pipeline.log 2>&1 || true

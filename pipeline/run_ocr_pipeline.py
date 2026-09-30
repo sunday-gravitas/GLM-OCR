@@ -266,22 +266,24 @@ def layout_probe(image_path: str) -> Dict[str, Any]:
         cfg = load_config("/tmp/glmocr_engine.yaml")
         detector = PPDocLayoutDetector(cfg.pipeline.layout)
         detector.start()
-        result = detector.detect(image_path)
-        if isinstance(result, dict):
-            boxes = result.get("boxes") or result.get("bboxes") or []
-            scores = result.get("scores") or result.get("confidences") or []
-        elif isinstance(result, (list, tuple)) and len(result) >= 1:
-            boxes, scores = result[0], (result[1] if len(result) > 1 else [])
-        else:
-            boxes, scores = [], []
+        from PIL import Image
+        img = Image.open(image_path).convert("RGB")
+        results, _vis = detector.process([img], save_visualization=False)
+        page = results[0] if results else {}
+        boxes = page.get("boxes", [])
+        scores = page.get("scores", [])
+        labels = page.get("labels", [])
+        score_vals = []
+        for sc in scores:
+            try:
+                score_vals.append(round(float(sc), 4))
+            except (TypeError, ValueError):
+                score_vals.append(str(sc))
         return {
-            "type": type(result).__name__,
-            "num_boxes": len(boxes) if hasattr(boxes, "__len__") else -1,
-            "score_range": (
-                [float(min(scores)), float(max(scores))]
-                if len(scores) else None
-            ),
-            "repr": repr(result)[:300],
+            "num_boxes": len(boxes),
+            "scores": score_vals[:20],
+            "labels": [int(l) for l in labels[:20]]
+            if len(labels) else [],
         }
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)[:300]}
