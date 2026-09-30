@@ -1,0 +1,17 @@
+{
+  "name": "GLM-OCR — THSC Physics OCR Pipeline (test-ocr)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  // Heavy setup (torch, Ollama, model pull) runs in the background so the
+  // codespace is usable immediately. Watch progress in /tmp/pipeline-bootstrap.log
+  "postCreateCommand": "nohup bash .devcontainer/pipeline-bootstrap.sh > /tmp/pipeline-bootstrap.log 2>&1 & echo '[postCreate] GLM-OCR pipeline bootstrap launched (log: /tmp/pipeline-bootstrap.log)'",
+  // On every (re)start: if the environment is ready → resume the pipeline,
+  // otherwise restart the bootstrap. Single-instance locking is handled in
+  // Python (flock), so double-launches are harmless.
+  "postStartCommand": "bash .devcontainer/pipeline-watchdog.sh",
+  "forwardPorts": [8787],
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"]
+    }
+  }
+}
