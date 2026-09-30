@@ -68,8 +68,13 @@ if [ -z "${ZHIPU_API_KEY:-}" ]; then
   STAGE="ollama-install"
   if ! command -v ollama >/dev/null 2>&1; then
     log "installing Ollama…"
-    curl -fsSL https://ollama.ai/install.sh | sh || {
-      log "FATAL: Ollama install failed"; exit 1; }
+    ok=0
+    for attempt in 1 2 3; do
+      if curl -fsSL --retry 3 https://ollama.ai/install.sh | sh; then ok=1; break; fi
+      log "ollama install attempt $attempt failed — retrying…"
+      sleep 5
+    done
+    [ "$ok" = "1" ] || { log "FATAL: Ollama install failed"; exit 1; }
   fi
 
   if ! pgrep -f "ollama serve" >/dev/null 2>&1; then

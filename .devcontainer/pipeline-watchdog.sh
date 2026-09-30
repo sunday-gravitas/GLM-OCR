@@ -20,14 +20,20 @@ launch() {  # launch <logfile> <cmd...>
 mark "watchdog-started" --note "postStartCommand is alive"
 log "watchdog started"
 
-# 1. keep the pipeline code current (this codespace is a pipeline appliance)
-if git fetch origin test-ocr --quiet 2>/dev/null; then
-  if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/test-ocr)" ]; then
-    log "updating to latest origin/test-ocr ($(git rev-parse --short origin/test-ocr))"
-    git reset --hard origin/test-ocr --quiet
+# 1. keep the pipeline code current (this codespace is a pipeline appliance).
+#    If an update is needed: reset, then RE-EXEC the new file cleanly — never
+#    keep executing a script whose file was swapped underneath bash.
+if [ "${WATCHDOG_REEXEC:-}" != "1" ]; then
+  if git fetch origin test-ocr --quiet 2>/dev/null; then
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/test-ocr)" ]; then
+      log "updating to latest origin/test-ocr ($(git rev-parse --short origin/test-ocr)) — re-exec"
+      git reset --hard origin/test-ocr --quiet
+      export WATCHDOG_REEXEC=1
+      exec bash "$0"
+    fi
+  else
+    log "WARNING: git fetch failed — running existing code"
   fi
-else
-  log "WARNING: git fetch failed — running existing code"
 fi
 mark "code-synced" --note "HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 
