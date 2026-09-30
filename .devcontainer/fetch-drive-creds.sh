@@ -29,6 +29,8 @@ URL="$(head -n1 "$URL_FILE" | tr -d '[:space:]')"
 echo "[creds] waiting for handoff file …"
 
 for i in $(seq 1 90); do
+  # re-read each attempt so a newly published handoff URL is picked up
+  URL="$(head -n1 "$URL_FILE" | tr -d '[:space:]')"
   if curl -sfL --max-time 60 "$URL" -o "$CREDS_FILE.tmp" \
      && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$CREDS_FILE.tmp" 2>/dev/null; then
     mv "$CREDS_FILE.tmp" "$CREDS_FILE"
