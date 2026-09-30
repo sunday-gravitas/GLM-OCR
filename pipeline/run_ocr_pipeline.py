@@ -160,7 +160,14 @@ def write_engine_config(model_name: str, port: int = 11434) -> Path:
     import glmocr
 
     base_path = Path(glmocr.__file__).parent / "config.yaml"
-    cfg = yaml.safe_load(base_path.read_text(encoding="utf-8")) or {}
+    cfg: Dict[str, Any] = {}
+    try:
+        import yaml  # shipped with the SDK install
+        cfg = yaml.safe_load(base_path.read_text(encoding="utf-8")) or {}
+    except ImportError:
+        # minimal fallback when PyYAML is unavailable — the essential
+        # fields the pipeline overrides (everything else uses SDK defaults)
+        cfg = {"pipeline": {"page_loader": {}, "layout": {}, "result_formatter": {}}}
 
     pipeline_cfg = cfg.setdefault("pipeline", {})
     pipeline_cfg["maas"] = {"enabled": False}

@@ -35,6 +35,19 @@ while true; do
     sleep 30
     continue
   fi
+
+  # keep the code current: apply branch updates between pipeline runs
+  if [ "${SUPERVISOR_REEXEC:-}" != "1" ]; then
+    if git fetch origin test-ocr --quiet 2>/dev/null; then
+      if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/test-ocr)" ]; then
+        log "updating to origin/test-ocr ($(git rev-parse --short origin/test-ocr)) — re-exec"
+        git reset --hard origin/test-ocr --quiet
+        export SUPERVISOR_REEXEC=1
+        exec bash "$0"
+      fi
+    fi
+  fi
+
   log "pipeline not running — starting"
   python3 pipeline/run_ocr_pipeline.py >> /tmp/pipeline.log 2>&1
   CODE=$?
