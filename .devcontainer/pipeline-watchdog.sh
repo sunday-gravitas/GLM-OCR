@@ -47,7 +47,7 @@ CREDS_OK=0
 [ -n "${DRIVE_CREDS_JSON:-}" ] && CREDS_OK=1
 mark "credentials-checked" --note "creds present: $CREDS_OK"
 
-if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1; then
+if pgrep -f "[p]ipeline-bootstrap.sh" >/dev/null 2>&1; then
   log "bootstrap already running — nothing to do"
   mark "watchdog-done" --note "bootstrap already running"
   exit 0
@@ -71,7 +71,7 @@ if [ "$READY" = "1" ]; then
   if [ -n "${CODESPACE_NAME:-}" ] && command -v gh >/dev/null 2>&1; then
     gh codespace ports visibility 8787:public -c "$CODESPACE_NAME" >/dev/null 2>&1 || true
   fi
-  if pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
+  if pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1; then
     log "pipeline already running"
     mark "watchdog-done" --note "pipeline already running" --logs
   else
@@ -89,7 +89,7 @@ fi
 setsid --fork bash -c '
   sleep 45
   cd "$(dirname "$0")/.." 2>/dev/null || cd /workspaces/GLM-OCR
-  if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1 || pgrep -f "run_ocr_pipeline.py" >/dev/null 2>&1; then
+  if pgrep -f "[p]ipeline-bootstrap.sh" >/dev/null 2>&1 || pgrep -f "[r]un_ocr_pipeline.py" >/dev/null 2>&1; then
     python3 pipeline/status_marker.py --status "watchdog-verified" \
       --note "background processes alive 45s after launch" --logs >/dev/null 2>&1 || true
   else

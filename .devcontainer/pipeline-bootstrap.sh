@@ -43,7 +43,7 @@ setsid --fork bash -c '
   while true; do
     sleep 300
     cd /workspaces/GLM-OCR 2>/dev/null || exit 0
-    if pgrep -f "pipeline-bootstrap.sh" >/dev/null 2>&1; then
+    if pgrep -f "[p]ipeline-bootstrap.sh" >/dev/null 2>&1; then
       python3 pipeline/status_marker.py --status "bootstrap-progress" --logs >/dev/null 2>&1 || true
     else
       exit 0
@@ -82,6 +82,12 @@ if [ -z "${ZHIPU_API_KEY:-}" ]; then
   STAGE="ollama-install"
   mark "ollama-install-started"
   if ! command -v ollama >/dev/null 2>&1; then
+    log "installing zstd prerequisite…"
+    if ! command -v zstd >/dev/null 2>&1; then
+      (sudo apt-get update -qq && sudo apt-get install -y -qq zstd) \
+        || apt-get update -qq && apt-get install -y zstd \
+        || log "WARNING: zstd install failed (will retry via ollama script)"
+    fi
     log "installing Ollama…"
     ok=0
     for attempt in 1 2 3; do
